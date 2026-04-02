@@ -9,7 +9,7 @@
         body { margin: 0; background: var(--bg); color: var(--text); font-family: monospace; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         header { padding: 10px; background: #252526; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; height: 50px; }
         #editor { flex: 1; width: 100%; background: var(--bg); color: #9cdcfe; padding: 15px; border: none; font-size: 14px; outline: none; border-bottom: 2px solid #333; resize: none; }
-        #console { flex: 0.8; background: #000; padding: 10px; overflow-y: auto; font-size: 12px; }
+        #console { flex: 1; background: #000; padding: 10px; overflow-y: auto; font-size: 12px; }
         .sys-log { color: #666; font-style: italic; font-size: 10px; margin-bottom: 4px; }
         #r-output { white-space: pre-wrap; color: #fff; margin-top: 5px; }
         #plot-canvas { width: 100%; max-width: 500px; background: white; display: none; margin: 10px 0; border-radius: 4px; }
@@ -24,14 +24,10 @@
     <button id="run-btn" disabled>Booting...</button>
 </header>
 
-<textarea id="editor" spellcheck="false"># webR IDE Mobile
-# The margins are now fixed automatically!
-
-x <- seq(0, 10, 0.1)
-y <- sin(x)
-plot(x, y, type="l", col="firebrick", lwd=3, main="Success!")
-
-print(paste("The mean of y is:", round(mean(y), 4)))</textarea>
+<textarea id="editor" spellcheck="false"># webR IDE
+# This version forces a graphics reset
+plot(rnorm(50), col="blue", pch=16, main="Final Test")
+print("If you see this, R is working!")</textarea>
 
 <div id="console">
     <div id="status-log"></div>
@@ -54,50 +50,44 @@ print(paste("The mean of y is:", round(mean(y), 4)))</textarea>
         div.className = 'sys-log';
         div.innerText = `> ${msg}`;
         statusLog.appendChild(div);
-        statusLog.scrollTop = statusLog.scrollHeight;
     }
 
     async function init() {
         try {
-            log("Initializing webR engine...");
+            log("Initializing...");
             await webR.init();
-            log("R Engine Online.");
+            log("Ready.");
             runBtn.innerText = "RUN CODE";
             runBtn.disabled = false;
         } catch (e) {
-            log("Error during boot: " + e.message);
+            log("Error: " + e.message);
         }
     }
 
     async function runCode() {
-        const code = document.getElementById('editor').value;
         runBtn.disabled = true;
-        rOutput.innerText = "Executing R...";
-        
-        // Clear previous graphics
+        rOutput.innerText = "Processing...";
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         canvas.style.display = 'none';
 
         try {
-            // 1. Setup the webR canvas device
+            // 1. FORCE RESET: Close any broken plot devices
+            await webR.evalRVoid('graphics.off()');
+            
+            // 2. SETUP: Large virtual canvas, tiny margins
             await webR.evalRVoid('options(device = webr::canvas)');
-            await webR.evalRVoid('webr::canvas(width=5, height=5, units="in", res=200)');
+            await webR.evalRVoid('webr::canvas(width=7, height=7, units="in", res=150)');
+            await webR.evalRVoid('par(mar=c(3, 3, 1, 1))');
             
-            // 2. FIX: Shrink margins so the plot doesn't crash on mobile
-            // par(mar = c(bottom, left, top, right))
-            await webR.evalRVoid('par(mar=c(4, 4, 2, 1))');
-            
-            // 3. Run the user's code
+            // 3. EXECUTE
+            const code = document.getElementById('editor').value;
             await webR.evalRVoid(code);
             
-            // 4. Capture and display results
+            // 4. DISPLAY
             const msgs = await webR.flush();
             rOutput.innerText = "";
-            
             msgs.forEach(msg => {
-                if (msg.type === 'stdout') {
-                    rOutput.innerText += msg.data + '\n';
-                }
+                if (msg.type === 'stdout') rOutput.innerText += msg.data + '\n';
                 if (msg.type === 'canvas' && (msg.data.event === 'canvasImage' || msg.data.image)) {
                     const img = msg.data.image || msg.data;
                     canvas.style.display = 'block';
@@ -110,7 +100,6 @@ print(paste("The mean of y is:", round(mean(y), 4)))</textarea>
             rOutput.innerText = "R Error: " + e.message;
         } finally {
             runBtn.disabled = false;
-            document.getElementById('console').scrollTop = 0;
         }
     }
 
