@@ -1,78 +1,100 @@
-<script type="module">
-    import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Debug Positron</title>
+    <style>
+        body { background: #1e1e1e; color: #ccc; font-family: monospace; margin: 0; padding: 10px; }
+        #debug-log { background: #000; border: 1px solid #444; height: 150px; overflow-y: auto; padding: 10px; font-size: 11px; margin-bottom: 10px; color: #0f0; }
+        #editor { width: 100%; height: 200px; background: #252526; color: #fff; border: 1px solid #333; padding: 10px; box-sizing: border-box; }
+        .controls { margin: 10px 0; display: flex; gap: 10px; }
+        button { padding: 10px; flex: 1; font-weight: bold; }
+        #status-bar { font-size: 12px; margin-top: 10px; color: #aaa; }
+        .err { color: #ff5555; }
+    </style>
+</head>
+<body>
 
-    // 1. Force webR to use PostMessage channel (avoids COOP/COEP issues)
+    <div id="debug-log">DEBUG CONSOLE:<br></div>
+
+    <textarea id="editor">print("Hello from R!")
+plot(rnorm(50))</textarea>
+
+    <div class="controls">
+        <button id="run-btn" disabled>Wait for Initialization...</button>
+    </div>
+
+    <canvas id="plot-canvas" style="width:100%; background:white; display:none;"></canvas>
+    <div id="r-output" style="white-space: pre-wrap; margin-top:10px;"></div>
+
+    <div id="status-bar">Status: Initializing Script...</div>
+
+<script type="module">
+    // Add a helper to print to our on-screen console
+    const dbg = (msg, isErr = false) => {
+        const log = document.getElementById('debug-log');
+        const span = document.createElement('div');
+        if(isErr) span.className = 'err';
+        span.innerText = `> ${msg}`;
+        log.appendChild(span);
+        log.scrollTop = log.scrollHeight;
+    };
+
+    dbg("Script module loaded.");
+
+    import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
+    
+    dbg("webR module imported successfully.");
+
     const webR = new WebR({
-        channelType: 0 // This is the 'PostMessage' channel
+        channelType: 0, // PostMessage (safe for GitHub Pages)
+        baseUrl: 'https://webr.r-wasm.org/latest/' // Explicitly point to CDN
     });
 
     const runBtn = document.getElementById('run-btn');
-    const clearBtn = document.getElementById('clear-btn');
-    const log = document.getElementById('log');
-    const status = document.getElementById('status');
-    const canvas = document.getElementById('plot-canvas');
+    const status = document.getElementById('status-bar');
+    const rOutput = document.getElementById('r-output');
 
-    async function init() {
+    async function start() {
         try {
-            console.log("webR starting...");
+            dbg("Calling webR.init()...");
+            status.innerText = "Status: webR.init() called...";
+            
             await webR.init();
-            console.log("webR initialized!");
             
-            status.innerText = "Engine: Ready (PostMessage)";
+            dbg("webR.init() completed!");
+            status.innerText = "Status: Engine Ready";
+            runBtn.innerText = "RUN CODE";
             runBtn.disabled = false;
-            runBtn.innerText = "Run Code";
-            log.innerHTML = "R Session Started. Ready for input.\n";
         } catch (e) {
-            console.error(e);
-            log.innerText = "Initialization Error: " + e.message + 
-                            "\n\nTry refreshing the page.";
-            status.innerText = "Engine: Error";
+            dbg("FATAL ERROR: " + e.message, true);
+            status.innerText = "Status: Failed";
         }
     }
 
-    async function runCode() {
+    runBtn.onclick = async () => {
         const code = document.getElementById('editor').value;
-        runBtn.disabled = true;
-        
-        // Reset plot
-        canvas.style.display = 'none';
-        
+        dbg("Executing R code...");
         try {
-            // Setup plot device inside the R session
             await webR.evalRVoid('canvas(width=500, height=500)');
-            
-            const shelve = await webR.evalR(code);
+            await webR.evalRVoid(code);
             const msgs = await webR.flush();
-            
-            msgs.forEach(msg => {
-                if (msg.type === 'stdout') {
-                    const div = document.createElement('div');
-                    div.innerText = msg.data;
-                    log.appendChild(div);
-                }
-                if (msg.type === 'canvas' && msg.data === 'show') {
-                    canvas.style.display = 'block';
-                }
+            msgs.forEach(m => {
+                if(m.type === 'stdout') rOutput.innerText += m.data + '\n';
+                if(m.type === 'canvas' && m.data === 'show') document.getElementById('plot-canvas').style.display = 'block';
             });
-        } catch (err) {
-            const errDiv = document.createElement('div');
-            errDiv.style.color = '#ff5555';
-            errDiv.innerText = "Error: " + err.message;
-            log.appendChild(errDiv);
-        } finally {
-            runBtn.disabled = false;
-            log.scrollTop = log.scrollHeight;
+            dbg("Execution finished.");
+        } catch (e) {
+            dbg("R Error: " + e.message, true);
         }
-    }
-
-    clearBtn.onclick = () => { 
-        log.innerHTML = ""; 
-        canvas.style.display = 'none'; 
     };
-    runBtn.onclick = runCode;
 
-    init();
+    // Give the browser a second to breathe before starting
+    setTimeout(start, 500);
 
-    // Bind canvas to webR
-    webR.setCanvasElement(canvas);
+    // Setup plotting
+    webR.setCanvasElement(document.getElementById('plot-canvas'));
 </script>
+</body>
+</html>
