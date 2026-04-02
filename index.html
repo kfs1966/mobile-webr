@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Positron Mobile</title>
+    <style>
+        :root {
+            --bg-dark: #181818;
+            --editor-bg: #1e1e1e;
+            --sidebar: #252526;
+            --accent: #007acc;
+            --text: #cccccc;
+            --success: #28a745;
+        }
+
+        body, html {
+            margin: 0; padding: 0; height: 100%;
+            background-color: var(--bg-dark);
+            color: var(--text);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+
+        .app-shell { display: flex; flex-direction: column; height: 100vh; }
+
+        header {
+            background-color: var(--sidebar);
+            display: flex; justify-content: space-between;
+            padding: 8px 15px; align-items: center;
+            border-bottom: 1px solid #333;
+        }
+
+        .toolbar { display: flex; gap: 10px; }
+
+        button {
+            padding: 6px 12px; border: none; border-radius: 3px;
+            cursor: pointer; font-weight: bold; color: white;
+        }
+
+        .btn-run { background-color: var(--success); }
+        .btn-clear { background-color: #444; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+        #editor {
+            flex: 1; border: none; padding: 15px;
+            background: var(--editor-bg); color: #9cdcfe;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 14px; resize: none; outline: none;
+        }
+
+        #console {
+            flex: 1; background: #000; padding: 10px;
+            overflow-y: auto; border-top: 2px solid #333;
+            font-family: monospace; font-size: 12px;
+        }
+
+        canvas { 
+            max-width: 100%; height: auto; 
+            background: white; margin: 10px 0; border-radius: 4px;
+            display: none;
+        }
+
+        footer {
+            background: var(--accent); color: white;
+            font-size: 11px; padding: 2px 10px;
+            display: flex; justify-content: space-between;
+        }
+    </style>
+</head>
+<body>
+
+<div class="app-shell">
+    <header>
+        <div style="font-size: 14px;"><b>Positron</b> <span style="opacity: 0.6">webR</span></div>
+        <div class="toolbar">
+            <button class="btn-clear" id="clear-btn">Clear</button>
+            <button class="btn-run" id="run-btn" disabled>Booting...</button>
+        </div>
+    </header>
+
+    <main>
+        <textarea id="editor" spellcheck="false"># webR Mobile IDE
+# 1. Write R code here
+# 2. Tap 'Run'
+# 3. See output below
+
+x <- seq(0, 2*pi, length.out=100)
+y <- sin(x)
+plot(x, y, type='l', col='orange', lwd=3, main='Hello from webR!')
+print(summary(y))</textarea>
+        
+        <div id="console">
+            <div id="log" style="color: #888;">Initializing WebAssembly...</div>
+            <canvas id="plot-canvas"></canvas>
+        </div>
+    </main>
+
+    <footer>
+        <div id="status">Engine: Offline</div>
+        <div>v0.1.0</div>
+    </footer>
+</div>
+
+<script type="module">
+    import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
+
+    const webR = new WebR();
+    const runBtn = document.getElementById('run-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    const log = document.getElementById('log');
+    const status = document.getElementById('status');
+    const canvas = document.getElementById('plot-canvas');
+
+    async function init() {
+        try {
+            await webR.init();
+            status.innerText = "Engine: Ready (webR)";
+            runBtn.disabled = false;
+            runBtn.innerText = "Run Code";
+            log.innerHTML = "R Session Started. Ready for input.\n";
+        } catch (e) {
+            log.innerText = "Error: " + e.message;
+        }
+    }
+
+    async function runCode() {
+        const code = document.getElementById('editor').value;
+        runBtn.disabled = true;
+        
+        // Setup plot device
+        await webR.evalRVoid('canvas(width=500, height=500)');
+        
+        try {
+            const shelve = await webR.evalR(code);
+            const msgs = await webR.flush();
+            
+            msgs.forEach(msg => {
+                if (msg.type === 'stdout') {
+                    const div = document.createElement('div');
+                    div.innerText = msg.data;
+                    log.appendChild(div);
+                }
+                if (msg.type === 'canvas' && msg.data === 'show') {
+                    canvas.style.display = 'block';
+                }
+            });
+        } catch (err) {
+            const errDiv = document.createElement('div');
+            errDiv.style.color = '#ff5555';
+            errDiv.innerText = "Error: " + err.message;
+            log.appendChild(errDiv);
+        } finally {
+            runBtn.disabled = false;
+            log.scrollTop = log.scrollHeight;
+        }
+    }
+
+    clearBtn.onclick = () => { 
+        log.innerHTML = ""; 
+        canvas.style.display = 'none'; 
+    };
+    runBtn.onclick = runCode;
+
+    init();
+
+    // Bind canvas to webR
+    webR.setCanvasElement(canvas);
+</script>
+</body>
+</html>
