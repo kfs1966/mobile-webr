@@ -3,98 +3,191 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Debug Positron</title>
+    <title>Positron Mobile (webR)</title>
     <style>
-        body { background: #1e1e1e; color: #ccc; font-family: monospace; margin: 0; padding: 10px; }
-        #debug-log { background: #000; border: 1px solid #444; height: 150px; overflow-y: auto; padding: 10px; font-size: 11px; margin-bottom: 10px; color: #0f0; }
-        #editor { width: 100%; height: 200px; background: #252526; color: #fff; border: 1px solid #333; padding: 10px; box-sizing: border-box; }
-        .controls { margin: 10px 0; display: flex; gap: 10px; }
-        button { padding: 10px; flex: 1; font-weight: bold; }
-        #status-bar { font-size: 12px; margin-top: 10px; color: #aaa; }
-        .err { color: #ff5555; }
+        :root {
+            --bg-dark: #1e1e1e;
+            --sidebar: #252526;
+            --accent: #007acc;
+            --text: #d4d4d4;
+            --header-h: 50px;
+            --footer-h: 25px;
+        }
+
+        * { box-sizing: border-box; }
+
+        body, html {
+            margin: 0; padding: 0; height: 100%;
+            background-color: var(--bg-dark);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        /* Layout */
+        .app-container {
+            display: flex; flex-direction: column; height: 100vh;
+        }
+
+        header {
+            height: var(--header-h);
+            background: var(--sidebar);
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0 15px; border-bottom: 1px solid #333;
+        }
+
+        main {
+            flex: 1; display: flex; flex-direction: column; overflow: hidden;
+        }
+
+        /* Editor */
+        #editor {
+            flex: 1.2; /* Takes slightly more space than console */
+            background: var(--bg-dark);
+            color: #9cdcfe;
+            border: none; padding: 15px;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 14px; resize: none; outline: none;
+            border-bottom: 2px solid #333;
+        }
+
+        /* Output Area */
+        #output-area {
+            flex: 1; background: #000; overflow-y: auto;
+            padding: 10px; font-family: monospace; font-size: 12px;
+        }
+
+        #plot-canvas {
+            display: none; width: 100%; max-width: 500px;
+            background: white; border-radius: 4px; margin: 10px 0;
+        }
+
+        #r-log { white-space: pre-wrap; color: #fff; }
+        .debug-msg { color: #888; font-style: italic; margin-bottom: 4px; }
+        .error-msg { color: #ff5555; }
+
+        /* Controls */
+        .btn-run {
+            background: #28a745; color: white; border: none;
+            padding: 8px 20px; border-radius: 4px; font-weight: bold;
+            cursor: pointer; transition: opacity 0.2s;
+        }
+        .btn-run:disabled { background: #444; cursor: not-allowed; }
+
+        footer {
+            height: var(--footer-h); background: var(--accent);
+            color: white; font-size: 11px; display: flex;
+            align-items: center; padding: 0 10px; justify-content: space-between;
+        }
     </style>
 </head>
 <body>
 
-    <div id="debug-log">DEBUG CONSOLE:<br></div>
+<div class="app-container">
+    <header>
+        <div style="font-weight: bold;">Positron <span style="opacity: 0.5; font-weight: normal;">webR</span></div>
+        <button id="run-btn" class="btn-run" disabled>Booting...</button>
+    </header>
 
-    <textarea id="editor">print("Hello from R!")
-plot(rnorm(50))</textarea>
+    <main>
+        <textarea id="editor" spellcheck="false"># Welcome to R on Mobile!
+# Try a simple plot:
 
-    <div class="controls">
-        <button id="run-btn" disabled>Wait for Initialization...</button>
-    </div>
+x <- seq(0, 10, 0.1)
+y <- sin(x)
+plot(x, y, type="l", col="cyan", lwd=2, main="WebR Signal")
 
-    <canvas id="plot-canvas" style="width:100%; background:white; display:none;"></canvas>
-    <div id="r-output" style="white-space: pre-wrap; margin-top:10px;"></div>
+print(mean(y))
+print("Done!")</textarea>
 
-    <div id="status-bar">Status: Initializing Script...</div>
+        <div id="output-area">
+            <div id="debug-console"></div>
+            <canvas id="plot-canvas"></canvas>
+            <div id="r-log"></div>
+        </div>
+    </main>
+
+    <footer>
+        <div id="status">Status: Initializing...</div>
+        <div>v1.0.0-mobile</div>
+    </footer>
+</div>
 
 <script type="module">
-    // Add a helper to print to our on-screen console
-    const dbg = (msg, isErr = false) => {
-        const log = document.getElementById('debug-log');
-        const span = document.createElement('div');
-        if(isErr) span.className = 'err';
-        span.innerText = `> ${msg}`;
-        log.appendChild(span);
-        log.scrollTop = log.scrollHeight;
-    };
-
-    dbg("Script module loaded.");
-
     import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
+
+    // Initialize webR with PostMessage (best for GitHub Pages compatibility)
+    const webR = new WebR({ channelType: 0 });
     
-    dbg("webR module imported successfully.");
-
-    const webR = new WebR({
-        channelType: 0, // PostMessage (safe for GitHub Pages)
-        baseUrl: 'https://webr.r-wasm.org/latest/' // Explicitly point to CDN
-    });
-
     const runBtn = document.getElementById('run-btn');
-    const status = document.getElementById('status-bar');
-    const rOutput = document.getElementById('r-output');
+    const status = document.getElementById('status');
+    const rLog = document.getElementById('r-log');
+    const debugDiv = document.getElementById('debug-console');
+    const canvas = document.getElementById('plot-canvas');
 
-    async function start() {
+    function dbg(msg, isErr = false) {
+        const div = document.createElement('div');
+        div.className = isErr ? 'error-msg' : 'debug-msg';
+        div.innerText = `> ${msg}`;
+        debugDiv.appendChild(div);
+        debugDiv.scrollTop = debugDiv.scrollHeight;
+    }
+
+    async function init() {
         try {
-            dbg("Calling webR.init()...");
-            status.innerText = "Status: webR.init() called...";
-            
+            dbg("Starting webR engine...");
             await webR.init();
+            dbg("Engine ready!");
             
-            dbg("webR.init() completed!");
-            status.innerText = "Status: Engine Ready";
+            status.innerText = "Status: Ready";
             runBtn.innerText = "RUN CODE";
             runBtn.disabled = false;
         } catch (e) {
-            dbg("FATAL ERROR: " + e.message, true);
-            status.innerText = "Status: Failed";
+            dbg("Initialization failed: " + e.message, true);
+            status.innerText = "Status: Error";
         }
     }
 
-    runBtn.onclick = async () => {
+    async function runCode() {
         const code = document.getElementById('editor').value;
-        dbg("Executing R code...");
+        runBtn.disabled = true;
+        rLog.innerText = ""; // Clear console
+        canvas.style.display = 'none'; // Hide plot until generated
+        
         try {
-            await webR.evalRVoid('canvas(width=500, height=500)');
-            await webR.evalRVoid(code);
+            // Configure the graphical device using the 'webr' namespace
+            await webR.evalRVoid('options(device = webr::canvas)');
+            await webR.evalRVoid('webr::canvas(width=500, height=500)');
+            
+            const shelve = await webR.evalR(code);
             const msgs = await webR.flush();
+            
             msgs.forEach(m => {
-                if(m.type === 'stdout') rOutput.innerText += m.data + '\n';
-                if(m.type === 'canvas' && m.data === 'show') document.getElementById('plot-canvas').style.display = 'block';
+                if (m.type === 'stdout') {
+                    rLog.innerText += m.data + '\n';
+                }
+                if (m.type === 'stderr') {
+                    rLog.innerText += 'Error: ' + m.data + '\n';
+                }
+                if (m.type === 'canvas' && m.data === 'show') {
+                    canvas.style.display = 'block';
+                }
             });
-            dbg("Execution finished.");
-        } catch (e) {
-            dbg("R Error: " + e.message, true);
+        } catch (err) {
+            rLog.innerText += "R Execution Error: " + err.message;
+        } finally {
+            runBtn.disabled = false;
         }
-    };
+    }
 
-    // Give the browser a second to breathe before starting
-    setTimeout(start, 500);
+    runBtn.onclick = runCode;
+    
+    // Bind the canvas for webR to draw on
+    webR.setCanvasElement(canvas);
 
-    // Setup plotting
-    webR.setCanvasElement(document.getElementById('plot-canvas'));
+    // Run init
+    init();
 </script>
+
 </body>
 </html>
